@@ -1,0 +1,84 @@
+@page "/login"
+@inject TokenStore Tokens
+@inject NavigationManager Nav
+@inject NexoraApiClient Api
+
+<PageTitle>Anmelden · Nexora Hub</PageTitle>
+
+<div class="auth-wrap">
+    <div class="auth-card card">
+        <h1>Anmelden</h1>
+        <p class="muted">Zugang zum Nexora Hub Verwaltungspanel. Tokens bleiben serverseitig – nichts davon wird an den Browser ausgeliefert.</p>
+
+        @if (needsSetup)
+        {
+            <div class="info-box">Noch kein Administrator eingerichtet. <a href="/setup" class="link">Jetzt einrichten</a>.</div>
+        }
+
+        <form class="form" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+            <label class="field">
+                <span>E-Mail</span>
+                <input class="input" type="email" @bind="model.Email" required autofocus />
+            </label>
+            <label class="field">
+                <span>Passwort</span>
+                <input class="input" type="password" @bind="model.Password" required />
+            </label>
+
+            @if (message != null)
+            {
+                <div class="error-box">@message</div>
+            }
+
+            <div class="row-gap">
+                <button class="btn btn-primary" type="submit" disabled="@submitting">@(submitting ? "Anmelden…" : "Anmelden")</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@code {
+    private LoginModel model = new();
+    private string? message;
+    private bool needsSetup;
+    private bool submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Tokens.IsAuthenticated)
+        {
+            Nav.NavigateTo(Tokens.IsAdmin ? "/admin" : "/admin/denied");
+            return;
+        }
+        if (Tokens.IsAdmin) Nav.NavigateTo("/admin");
+        var status = await Api.SetupStatusAsync();
+        needsSetup = status.Ok && status.Value!.GetProperty("needsSetup").GetBoolean();
+    }
+
+    private async Task SubmitAsync()
+    {
+        message = null;
+        submitting = true;
+        try
+        {
+            var result = await Api.LoginAsync(model.Email.Trim(), model.Password);
+            if (!result.Ok)
+            {
+                message = result.Error ?? "Anmeldung fehlgeschlagen.";
+                return;
+            }
+            Tokens.Set(result.Value!);
+            Nav.NavigateTo(Tokens.IsAdmin ? "/admin" : "/admin/denied");
+        }
+        finally
+        {
+            submitting = false;
+        }
+    }
+
+    public class LoginModel
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+}

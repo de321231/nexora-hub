@@ -1,0 +1,62 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@inject TokenStore Tokens
+@inject NavigationManager Nav
+
+<PageTitle>Nexora Hub</PageTitle>
+
+<div class="page">
+    <aside class="sidebar">
+        <div class="logo">NEXORA <span class="accent">HUB</span></div>
+        @if (Tokens.IsAuthenticated)
+        {
+            <NavMenu />
+        }
+        else
+        {
+            <a class="nav-link" href="/login">Anmelden</a>
+            <a class="nav-link" href="/setup">Ersteinrichtung</a>
+        }
+    </aside>
+    <div class="main-column">
+        <header class="top-row">
+            <h2 class="page-title">Nexora Hub · Administration</h2>
+            @if (Tokens.IsAuthenticated)
+            {
+                <div class="user-area">
+                    <span class="user-badge">@Tokens.User?.Email</span>
+                    @if (Tokens.IsAdmin)
+                    {
+                        <span class="badge active">Admin</span>
+                    }
+                    <button class="btn btn-small" @onclick="LogoutAsync">Abmelden</button>
+                </div>
+            }
+        </header>
+        <main class="content">
+            @Body
+        </main>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized() => Tokens.Changed += OnTokensChanged;
+
+    private void OnTokensChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task LogoutAsync()
+    {
+        await TokensLogout();
+        Nav.NavigateTo("/login");
+    }
+
+    [Inject] private NexoraApiClient Api { get; set; } = default!;
+
+    private async Task TokensLogout()
+    {
+        try { await Api.LogoutAsync(); } catch { /* Abmelden ist auch ohne Server best effort */ }
+        Tokens.Clear();
+    }
+
+    public void Dispose() => Tokens.Changed -= OnTokensChanged;
+}

@@ -1,0 +1,142 @@
+<UserControl x:Class="Nexora.Desktop.Views.LicensesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700">
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="330"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Linke Spalte: Schlüssel einlösen + Liste -->
+        <Border Grid.Column="0" BorderBrush="{StaticResource BorderBrushKey}" BorderThickness="0,0,1,0" Padding="16">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <TextBlock Text="Meine Lizenzen" Style="{StaticResource H2Text}" Margin="2,4,0,12"/>
+                    <TextBox x:Name="KeyBox" Text="{Binding KeyInput, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Lizenzschlüssel einlösen (z. B. NEXR-XXXX-XXXX-XXXX)" Margin="0,0,0,8"/>
+                    <Button Style="{StaticResource PrimaryButton}" Content="Schlüssel einlösen"
+                            Command="{Binding RedeemCommand}" IsEnabled="{Binding CanRedeem}"/>
+                    <TextBlock Text="{Binding RedeemMessage}" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <ProgressBar Grid.Row="1" IsIndeterminate="True" Height="3" Margin="0,8,0,8"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+                <ListBox Grid.Row="2" ItemsSource="{Binding Licenses}"
+                         SelectedItem="{Binding SelectedLicense}" Background="Transparent" BorderThickness="0" Margin="0,6,0,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="2,4">
+                                <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="10" Padding="12,10">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Border Style="{StaticResource StatusBadge}"
+                                                    BorderBrush="{Binding Status, Converter={StaticResource LicenseStatusBrush}}">
+                                                <TextBlock Text="{Binding Status, Converter={StaticResource LicenseStatusText}}"
+                                                           FontSize="11" Foreground="{Binding Status, Converter={StaticResource LicenseStatusBrush}}"/>
+                                            </Border>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,6,0,1"/>
+                                        <TextBlock Text="{Binding AppName}" Style="{StaticResource MutedText}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding ExpiryText}" Style="{StaticResource MutedText}" FontSize="11"/>
+                                        <TextBlock Text="{Binding ModelsSummary}" Style="{StaticResource MutedText}" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- Rechte Spalte: Details -->
+        <Grid Grid.Column="1" Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,6,0,16">
+                <TextBlock Text="Lizenzdetails" Style="{StaticResource H2Text}"/>
+                <TextBlock Text="{Binding QuotaText}" Style="{StaticResource MutedText}" Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding QuotaDetail}" Style="{StaticResource MutedText}" FontSize="12"/>
+                <TextBlock Text="Gesetzliche Kontingente werden serverseitig anhand des reservierten Verbrauchs durchgesetzt – auch bei parallelen Anfragen."
+                           Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            </StackPanel>
+
+            <!-- Nutzung -->
+            <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Letzte Nutzung" Style="{StaticResource H2Text}" Margin="20,16,20,10"/>
+
+                    <ListView Grid.Row="1" ItemsSource="{Binding Usage}" Margin="0,0,0,0" Background="Transparent" BorderThickness="0">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Zeitpunkt" Width="130">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate><TextBlock Text="{Binding CreatedAtUtc, StringFormat=dd.MM. HH:mm}" Foreground="{StaticResource TextMutedBrush}"/></DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="Modell" Width="210">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate><TextBlock Text="{Binding ModelId}" TextTrimming="CharacterEllipsis"/></DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="Tokens" Width="100">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding TotalTokens}"/>
+                                                <TextBlock Text="{Binding TokensEstimated, Converter={StaticResource BoolToEstimatedText}}"
+                                                           Style="{StaticResource MutedText}" FontSize="11" Margin="4,0,0,0"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="Kosten" Width="90">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate><TextBlock Text="{Binding CostUsd, Converter={StaticResource CostText}}"/></DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="Status" Width="90">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock>
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="OK"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Success}" Value="False">
+                                                                <Setter Property="Text" Value="Fehler"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

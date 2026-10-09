@@ -1,0 +1,82 @@
+<UserControl x:Class="Nexora.Desktop.Views.DevicesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700">
+    <Grid Background="Transparent" Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="2,4,0,14">
+            <TextBlock Text="Geräte" Style="{StaticResource H2Text}"/>
+            <TextBlock Style="{StaticResource MutedText}">
+                Die maximale Anzahl gleichzeitig aktiver Geräte wird pro Lizenz serverseitig erzwungen.
+            </TextBlock>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,14">
+            <Button Style="{StaticResource PrimaryButton}" Content="Dieses Gerät aktivieren" Command="{Binding ActivateCommand}"/>
+            <Button Content="Ausgewählt deaktivieren" Style="{StaticResource DangerButton}" Margin="12,0,0,0"
+                    Command="{Binding RevokeCommand}"/>
+            <Button Style="{StaticResource IconButton}" Content="🔄" Command="{Binding RefreshCommand}" Margin="12,0,0,0"/>
+        </StackPanel>
+
+        <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="3" VerticalAlignment="Top"
+                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+        <ListBox Grid.Row="2" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}"
+                 Background="Transparent" BorderThickness="0" Margin="0,10,0,0">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Border Style="{StaticResource CardBorder}" Padding="16,12" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0" Text="🖥️" FontSize="20" Margin="0,0,14,0" VerticalAlignment="Center"/>
+
+                            <StackPanel Grid.Column="1">
+                                <DockPanel>
+                                    <TextBlock Text="{Binding DeviceName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="  dieses Gerät" Style="{StaticResource MutedText}" FontSize="11"
+                                               Foreground="{StaticResource AccentHoverBrush}"
+                                               Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVis}}"/>
+                                </DockPanel>
+                                <TextBlock Text="{Binding Platform}" Style="{StaticResource MutedText}" FontSize="12"/>
+                                <TextBlock Text="{Binding LastSeen}" Style="{StaticResource MutedText}" FontSize="11"/>
+                            </StackPanel>
+
+                            <Border Grid.Column="2" Style="{StaticResource StatusBadge}" BorderBrush="#30303D"
+                                    VerticalAlignment="Center">
+                                <TextBlock>
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="Aktiv"/>
+                                            <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Revoked}" Value="True">
+                                                    <Setter Property="Text" Value="Deaktiviert"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,10,0,4"/>
+    </Grid>
+</UserControl>

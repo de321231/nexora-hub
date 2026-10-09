@@ -1,0 +1,67 @@
+@page "/admin"
+@page "/admin/dashboard"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Dashboard · Nexora Hub</PageTitle>
+
+<h1>Dashboard</h1>
+<p class="muted">Live-Kennzahlen der Lizenzierungsplattform (Schlüsselliste, Lizenzen, Kontingente, KI-Nutzung).</p>
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    <div class="grid-cards" style="margin-top:16px;">
+        <div class="stat-card"><h3>Benutzer</h3><div class="value">@stats!.TotalUsers</div><div class="stat-sub">@stats.ActiveUsers aktiv</div></div>
+        <div class="stat-card"><h3>Apps</h3><div class="value">@stats.TotalApps</div></div>
+        <div class="stat-card"><h3>Aktive Lizenzen</h3><div class="value">@stats.ActiveLicenses</div><div class="stat-sub">@stats.PendingLicenses ausstehend · @stats.SuspendedLicenses gesperrt · @stats.RevokedLicenses widerrufen · @stats.ExpiredLicenses abgelaufen</div></div>
+        <div class="stat-card"><h3>Lizenzschlüssel</h3><div class="value">@stats.TotalLicenseKeys</div><div class="stat-sub">@stats.RedeemedLicenseKeys eingelöst</div></div>
+        <div class="stat-card"><h3>Aktive Geräte</h3><div class="value">@stats.ActiveDevices</div></div>
+        <div class="stat-card"><h3>Anfragen heute</h3><div class="value">@FmtLong(stats.RequestsToday)</div><div class="stat-sub">@FmtLong(stats.RequestsThisMonth) diesen Monat</div></div>
+        <div class="stat-card"><h3>Tokens heute</h3><div class="value">@FmtLong(stats.TokensToday)</div><div class="stat-sub">@FmtLong(stats.TokensThisMonth) diesen Monat</div></div>
+        <div class="stat-card"><h3>Kosten (Monat)</h3><div class="value">@(stats.CostThisMonthUsd.HasValue ? stats.CostThisMonthUsd.Value.ToString("0.00") + " $" : "—")</div></div>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+        <h2 style="font-size:16px;">Zuletzt aktive Benutzer</h2>
+        @if (stats.RecentlyActiveUsers.Count == 0)
+        {
+            <p class="muted">Noch keine Aktivitäten.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead><tr><th>E-Mail</th><th>Name</th><th>Zuletzt angemeldet</th></tr></thead>
+                <tbody>
+                @foreach (var u in stats.RecentlyActiveUsers)
+                {
+                    <tr>
+                        <td><strong>@u.Email</strong></td>
+                        <td>@(u.FullName ?? "—")</td>
+                        <td>@Fmt(u.LastLoginAtUtc)</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private DashboardStatsDto? stats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var result = await Api.DashboardAsync();
+        if (!result.Ok) throw new Exception(result.Error ?? "Dashboard konnte nicht geladen werden.");
+        stats = result.Value;
+    });
+}

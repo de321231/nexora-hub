@@ -1,0 +1,24 @@
+# ============================================================================
+# Beispielkonfiguration für eine LOKALE LiteLLM-Instanz (optional).
+# Nur nötig, wenn keine externe LiteLLM-Instanz existiert.
+#
+# Nach "deploy/litellm/config.yaml" kopieren und die echten Zugangsdaten
+# Ihres KI-Anbieters eintragen. KEINE echten Geheimnisse einchecken!
+# Dokumentation der Optionen: https://docs.litellm.ai/docs/proxy/configs
+# ============================================================================
+
+model_list:
+  - model_name: openai/gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+  # - model_name: anthropic/claude-3-5-sonnet
+  #   litellm_params:
+  #     model: anthropic/claude-3-5-sonnet
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

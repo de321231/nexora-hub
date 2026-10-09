@@ -1,0 +1,40 @@
+# ============================================================================
+# OPTIONAL: Lokale LiteLLM-Instanz.
+#
+# Nur verwenden, wenn KEINE externe LiteLLM-Instanz existiert. Standard ist
+# die Anbindung einer vorhandenen externen Instanz über NEXORA_LITELLM_URL
+# und NEXORA_LITELLM_KEY (siehe docker-compose.yml und DEPLOYMENT.md).
+#
+# Verwendung:
+#   cp deploy/litellm/config.yaml.example deploy/litellm/config.yaml
+#   # config.yaml mit echten Provider-Zugangsdaten anpassen
+#   docker compose -f docker-compose.yml -f docker-compose.litellm.yml up -d
+#
+# Dazu muss in der .env gelten:
+#   NEXORA_LITELLM_URL=http://litellm:4000
+#   NEXORA_LITELLM_KEY=<master_key aus config.yaml>
+# ============================================================================
+
+name: nexora
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    volumes:
+      - ./deploy/litellm/config.yaml:/app/config.yaml:ro
+    networks:
+      - nexora
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4000/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  nexora:
+    driver: bridge

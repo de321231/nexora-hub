@@ -1,0 +1,164 @@
+@page "/admin/license-keys"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Lizenzschlüssel · Nexora Hub</PageTitle>
+
+<h1>Lizenzschlüssel</h1>
+<p class="muted">Kryptographisch sichere Schlüssel zum Einlösen. Gespeichert werden nur Hashes – der Klartext erscheint genau einmal.</p>
+
+<div class="card panel" style="margin-bottom:16px;">
+    <h2 style="font-size:16px;">Schlüssel erzeugen</h2>
+    <div class="form-grid">
+        <label class="field"><span>Lizenz *</span>
+            <select class="input" @bind="create.LicenseId">
+                <option value="@(Guid.Empty)">— wählen —</option>
+                @foreach (var l in licenses) { <option value="@l.Id">@(l.Name ?? l.AppName) · @l.Id</option> }
+            </select>
+        </label>
+        <label class="field"><span>Anzahl (1–500)</span><input class="input" type="number" min="1" max="500" @bind="create.Count" /></label>
+        <label class="field"><span>Max. Einlösungen</span><input class="input" type="number" min="1" @bind="create.MaxUses" /></label>
+        <label class="field"><span>Ablauf</span><input class="input" type="text" placeholder="JJJJ-MM-TT HH:MM" @bind="expiresText" /></label>
+    </div>
+    <label class="field"><span>Notiz</span><input class="input" @bind="create.Note" /></label>
+
+    @if (createdKeys.Count > 0)
+    {
+        <div class="warning-box">
+            <strong>Wichtiger Hinweis:</strong> Die Klartext-Schlüssel werden nur ein einziges Mal angezeigt. Danach sind sie nur noch als Hash in der Datenbank.
+            <div class="key-list">
+                @foreach (var k in createdKeys)
+                {
+                    <div class="key-row">
+                        <code>@k.Key</code>
+                        <button class="btn" @onclick="() => CopyAsync(k.Key)">Kopieren</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (actionError != null) { <div class="error-box">@actionError</div> }
+    <div class="row-gap">
+        <button class="btn btn-primary" @onclick="CreateAsync">Erzeugen</button>
+        @if (createdKeys.Count > 0) { <button class="btn" @onclick="() => createdKeys.Clear()">Verwerfen</button> }
+    </div>
+</div>
+
+<div class="search-bar">
+    <select class="input" @bind="licenseFilter" style="max-width:300px;width:auto;">
+        <option value="@(Guid.Empty)">Alle Lizenzen</option>
+        @foreach (var l in licenses) { <option value="@l.Id">@(l.Name ?? l.AppName)</option> }
+    </select>
+    <select class="input" @bind="statusFilter" style="max-width:200px;width:auto;">
+        <option value="Alle">Alle Status</option>
+        @foreach (var s in Enum.GetValues<LicenseKeyStatus>()) { <option value="@s">@s</option> }
+    </select>
+    <button class="btn" @onclick="LoadAsync">Aktualisieren</button>
+</div>
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    var list = keys;
+    if (licenseFilter != Guid.Empty) list = list.Where(k => k.LicenseId == licenseFilter).ToList();
+    if (Enum.TryParse<LicenseKeyStatus>(statusFilter, out var sf)) list = list.Where(k => k.Status == sf).ToList();
+
+    if (list.Count == 0)
+    {
+        <div class="empty">Keine Lizenzschlüssel gefunden.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>Präfix</th><th>Lizenz</th><th>Status</th><th>Genutzt</th><th>Eingelöst von</th><th>Eingelöst am</th><th>Ablauf</th><th>Aktionen</th></tr></thead>
+            <tbody>
+            @foreach (var k in list)
+            {
+                <tr>
+                    <td><code>@k.KeyPrefix…</code></td>
+                    <td>@(k.LicenseName ?? k.LicenseId.ToString()[..8])</td>
+                    <td><span class="badge @StatusBadge(k.Status)">@k.Status</span></td>
+                    <td>@k.UsedCount / @k.MaxUses</td>
+                    <td>@(k.RedeemedByEmail ?? "—")</td>
+                    <td>@Fmt(k.RedeemedAt)</td>
+                    <td>@Fmt(k.ExpiresAt)</td>
+                    <td>
+                        <div class="row-gap">
+                            @if (k.Status != LicenseKeyStatus.Revoked) { <button class="btn" @onclick="() => RevokeAsync(k.Id)">Widerrufen</button> }
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private List<LicenseKeyDto> keys = new();
+    private List<AdminLicenseDto> licenses = new();
+    private readonly List<CreatedLicenseKeyDto> createdKeys = new();
+    private string expiresText = "";
+    private Guid licenseFilter = Guid.Empty;
+    private string statusFilter = "Alle";
+    private string? actionError;
+
+    private readonly CreateLicenseKeyRequest create = new() { Count = 1, MaxUses = 1 };
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var keysResult = await Api.LicenseKeysAsync(licenseFilter == Guid.Empty ? null : licenseFilter,
+            Enum.TryParse<LicenseKeyStatus>(statusFilter, out var sf) ? sf : null);
+        if (!keysResult.Ok) throw new Exception(keysResult.Error ?? "Schlüssel konnten nicht geladen werden.");
+        keys = keysResult.Value ?? new();
+
+        var licensesResult = await Api.LicensesAsync();
+        licenses = licensesResult.Ok ? licensesResult.Value ?? new() : new();
+    });
+
+    private async Task CreateAsync()
+    {
+        actionError = null;
+        if (create.LicenseId == Guid.Empty) { actionError = "Bitte eine Lizenz wählen."; return; }
+        var req = new CreateLicenseKeyRequest
+        {
+            LicenseId = create.LicenseId,
+            Count = Math.Clamp(create.Count, 1, 500),
+            MaxUses = Math.Max(1, create.MaxUses),
+            ExpiresAt = DateTime.TryParse(expiresText, out var d)
+                ? DateTime.SpecifyKind(d, DateTimeKind.Local).ToUniversalTime()
+                : null,
+            Note = string.IsNullOrWhiteSpace(create.Note) ? null : create.Note
+        };
+        var result = await Api.CreateLicenseKeysAsync(req);
+        if (!result.Ok) { actionError = result.Error; return; }
+        createdKeys.Clear();
+        createdKeys.AddRange(result.Value ?? new());
+        await LoadAsync();
+    }
+
+    private async Task RevokeAsync(Guid id)
+    {
+        var res = await Api.RevokeLicenseKeyAsync(id);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await LoadAsync();
+    }
+
+    private async Task CopyAsync(string key)
+    {
+        if (Js == null) return;
+        try { await Js.InvokeVoidAsync("navigator.clipboard.writeText", key); actionError = null; }
+        catch { actionError = "Zwischenablage nicht verfügbar."; }
+    }
+
+    [Inject] private Microsoft.JSInterop.IJSRuntime? Js { get; set; }
+}

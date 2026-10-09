@@ -1,0 +1,112 @@
+# ============================================================================
+# Nexora – Lizenzserver (API) + Admin-Panel (Web) per Docker Compose
+#
+# WICHTIG:
+#   - Es wird die EXTERNE PostgreSQL-Instanz verwendet (Schema "nexora").
+#     Das Wharf-Schema "public" wird niemals berührt.
+#   - Optional: docker-compose.local-db.yml  (lokale Test-DB, NICHT Produktion)
+#     Optional: docker-compose.litellm.yml    (lokale LiteLLM-Instanz)
+#   - Alle Werte kommen aus der .env (siehe .env.example). KEINE Geheimnisse
+#     werden in dieser Datei abgelegt.
+#
+# Vollständige Anleitung: DEPLOYMENT.md
+# ============================================================================
+
+name: nexora
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # ---- Lizenzserver (ASP.NET Core Web API) ----
+  nexora-api:
+    build:
+      context: .
+      dockerfile: src/Nexora.Api/Dockerfile
+    image: nexora-api:${NEXORA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${NEXORA_ENVIRONMENT:-Production}
+      # Innen im Container ist die API immer auf Port 8080 erreichbar.
+      ASPNETCORE_URLS: http://+:8080
+      # PostgreSQL-Verbindung (externe Instanz, Schema "nexora" ist im Code fixiert).
+      NEXORA_DB: "Host=${NEXORA_DB_HOST:?NEXORA_DB_HOST in .env setzen};Port=${NEXORA_DB_PORT:-5432};Database=${NEXORA_DB_NAME:?NEXORA_DB_NAME in .env setzen};Username=${NEXORA_DB_USER:?NEXORA_DB_USER in .env setzen};Password=${NEXORA_DB_PASSWORD:?NEXORA_DB_PASSWORD in .env setzen};SSL Mode=${NEXORA_DB_SSL_MODE:-Prefer}"
+      # JWT / Authentifizierung (kein Standardwert! Schlüssel muss min. 32 Byte haben)
+      NEXORA_JWT_KEY: ${NEXORA_JWT_KEY:?NEXORA_JWT_KEY in .env setzen (min. 32 Byte)}
+      NEXORA_JWT_ISSUER: ${NEXORA_JWT_ISSUER:-Nexora}
+      NEXORA_JWT_AUDIENCE: ${NEXORA_JWT_AUDIENCE:-NexoraClients}
+      NEXORA_JWT_ACCESS_MINUTES: ${NEXORA_JWT_ACCESS_MINUTES:-60}
+      NEXORA_JWT_REFRESH_DAYS: ${NEXORA_JWT_REFRESH_DAYS:-30}
+      # LiteLLM (nur im API-Container; der Schlüssel wird nie an Clients übertragen)
+      NEXORA_LITELLM_URL: ${NEXORA_LITELLM_URL:-}
+      NEXORA_LITELLM_KEY: ${NEXORA_LITELLM_KEY:-}
+      NEXORA_LITELLM_DEFAULT_MODEL: ${NEXORA_LITELLM_DEFAULT_MODEL:-}
+      # Einmaliger Admin-Bootstrap: optionales Geheimnis für X-Bootstrap-Secret
+      NEXORA_BOOTSTRAP_SECRET: ${NEXORA_BOOTSTRAP_SECRET:-}
+      # CORS: durch Kommas getrennte Origins; leer = keine Cross-Origin-Erlaubnis
+      NEXORA_CORS_ORIGINS: ${NEXORA_CORS_ORIGINS:-}
+      # 1 = Migrationen beim Start automatisch anwenden (Standard: kontrolliert via run --migrate)
+      NEXORA_AUTO_MIGRATE: ${NEXORA_AUTO_MIGRATE:-0}
+      # 1 = X-Forwarded-* Header vom Reverse Proxy vertrauen
+      NEXORA_USE_FORWARDED_HEADERS: ${NEXORA_USE_FORWARDED_HEADERS:-0}
+      Serilog__MinimumLevel__Default: ${NEXORA_LOG_LEVEL:-Information}
+    ports:
+      # Nach außen: nur für legitime Browser-/Desktop-Clients. In Produktion
+      # lieber hinter HTTPS-Reverse-Proxy binden (z. B. Bind-IP auf 127.0.0.1).
+      - "${NEXORA_API_BIND_IP:-0.0.0.0}:${NEXORA_API_HTTP_PORT:-5199}:8080"
+    networks:
+      - nexora
+    healthcheck:
+      # Readiness = HTTP 200 auf /health/ready (prüft zusätzlich die DB-Erreichbarkeit)
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health/ready > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  # ---- Admin-Panel (Blazor Server) ----
+  nexora-web:
+    build:
+      context: .
+      dockerfile: src/Nexora.Web/Dockerfile
+    image: nexora-web:${NEXORA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${NEXORA_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      # Interne Adresse im Docker-Netzwerk – KEINE Browser-Adresse. Das Panel
+      # spricht serverseitig mit der API; der Browser erreicht nur das Panel.
+      ApiBaseUrl: http://nexora-api:8080
+      # Damit der Bootstrap hinter einem Reverse Proxy funktioniert, reicht das
+      # Web-Panel das Secret serverseitig an die API weiter (nie an den Browser).
+      NEXORA_BOOTSTRAP_SECRET: ${NEXORA_BOOTSTRAP_SECRET:-}
+      NEXORA_USE_FORWARDED_HEADERS: ${NEXORA_USE_FORWARDED_HEADERS:-0}
+      Logging__LogLevel__Default: ${NEXORA_LOG_LEVEL:-Information}
+    ports:
+      - "${NEXORA_WEB_BIND_IP:-0.0.0.0}:${NEXORA_WEB_HTTP_PORT:-5100}:8080"
+    depends_on:
+      nexora-api:
+        condition: service_healthy
+    networks:
+      - nexora
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+networks:
+  # Internes Netzwerk: API <-> Web. PostgreSQL bleibt extern bzw. im
+  # optionalen lokalen Netzplan ohne öffentliche Ports.
+  nexora:
+    driver: bridge

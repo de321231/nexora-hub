@@ -1,0 +1,450 @@
+@page "/admin/licenses"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Lizenzen · Nexora Hub</PageTitle>
+
+<h1>Lizenzen</h1>
+<p class="muted">Licenses steuern Zugriff und Kontingente (Nachrichten- und Token-Limits, Geräte, erlaubte Modelle).</p>
+
+<div class="search-bar">
+    <select class="input" @bind="statusFilter" style="max-width:200px;">
+        <option value="Alle">Alle Status</option>
+        @foreach (var s in Enum.GetValues<LicenseStatus>()) { <option value="@s">@s</option> }
+    </select>
+    <input class="input" type="text" @bind="search" @bind:event="oninput" placeholder="Suche Lizenzname…" style="max-width:280px;" />
+    <button class="btn btn-primary" @onclick="ToggleCreate">@(showCreate ? "Abbrechen" : "Neue Lizenz")</button>
+</div>
+
+@if (showCreate || editing != null)
+{
+    var f = editing ?? create;
+    var isEdit = editing != null;
+    <div class="card panel">
+        <h2 style="font-size:16px;">@(isEdit ? "Lizenz bearbeiten" : "Neue Lizenz")</h2>
+        <div class="form-grid">
+            <label class="field"><span>App *</span>
+                <select class="input" @bind="f.AppId">
+                    <option value="@(Guid.Empty)">— wählen —</option>
+                    @foreach (var a in apps) { <option value="@a.Id">@a.Name</option> }
+                </select>
+            </label>
+            <label class="field"><span>Name</span><input class="input" @bind="f.Name" /></label>
+            @if (!isEdit)
+            {
+                <label class="field"><span>Schlüssel-Präfix</span><input class="input" @bind="f.KeyPrefix" placeholder="NX" /></label>
+            }
+            <label class="field"><span>Max Geräte</span><input class="input" type="number" min="1" @bind="f.MaxDevices" /></label>
+            <label class="field"><span>Start</span><input class="input" type="text" placeholder="JJJJ-MM-TT HH:MM" @bind="f.StartsAtText" /></label>
+            <label class="field"><span>Ende</span><input class="input" type="text" placeholder="JJJJ-MM-TT HH:MM" @bind="f.ExpiresAtText" /></label>
+            <label class="field"><span>Nachrichten / Tag</span><input class="input" type="number" @bind="f.MaxMessagesPerDay" /></label>
+            <label class="field"><span>Nachrichten / Monat</span><input class="input" type="number" @bind="f.MaxMessagesPerMonth" /></label>
+            <label class="field"><span>Eingabe-Tokens / Tag</span><input class="input" type="number" @bind="f.MaxInputTokensPerDay" /></label>
+            <label class="field"><span>Eingabe-Tokens / Monat</span><input class="input" type="number" @bind="f.MaxInputTokensPerMonth" /></label>
+            <label class="field"><span>Ausgabe-Tokens / Tag</span><input class="input" type="number" @bind="f.MaxOutputTokensPerDay" /></label>
+            <label class="field"><span>Ausgabe-Tokens / Monat</span><input class="input" type="number" @bind="f.MaxOutputTokensPerMonth" /></label>
+            <label class="field"><span>Gesamt-Tokens / Tag</span><input class="input" type="number" @bind="f.MaxTotalTokensPerDay" /></label>
+            <label class="field"><span>Gesamt-Tokens / Monat</span><input class="input" type="number" @bind="f.MaxTotalTokensPerMonth" /></label>
+            <label class="field"><span>Max Tokens / Anfrage</span><input class="input" type="number" @bind="f.MaxTokensPerRequest" /></label>
+        </div>
+        <div class="panel-section">
+            <h3>Erlaubte Modelle</h3>
+            @if (models.Count == 0)
+            {
+                <p class="muted">Noch keine Modelle im Katalog vorhanden.</p>
+            }
+            else
+            {
+                <div class="chip-row">
+                    @foreach (var m in models)
+                    {
+                        var mid = m.Id;
+                        var isSel = f.ModelIds.Contains(mid);
+                        <label class="chip">
+                            <input type="checkbox" checked="@isSel" @onchange="e => ToggleModel(f, mid, (bool)e.Value!)" />
+                            @m.DisplayName
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+        @if (actionError != null) { <div class="error-box">@actionError</div> }
+        <div class="row-gap">
+            <button class="btn btn-primary" @onclick="() => isEdit ? SaveEditAsync() : CreateAsync()">Speichern</button>
+            <button class="btn" @onclick="CancelForm">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    var list = licenses;
+    if (!string.IsNullOrWhiteSpace(search))
+        list = list.Where(l => (l.Name ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)
+                            || (l.AppName ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (Enum.TryParse<LicenseStatus>(statusFilter, out var sf))
+        list = list.Where(l => l.Status == sf).ToList();
+
+    if (list.Count == 0)
+    {
+        <div class="empty">Keine Lizenzen gefunden.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>Lizenz</th><th>App</th><th>Status</th><th>Geräte</th><th>Benutzer</th><th>Schlüssel</th><th>Ende</th><th>Aktionen</th></tr></thead>
+            <tbody>
+            @foreach (var l in list)
+            {
+                <tr>
+                    <td><strong>@(l.Name ?? "Unbenannt")</strong></td>
+                    <td>@l.AppName</td>
+                    <td><span class="badge @StatusBadge(l.Status)">@l.Status</span></td>
+                    <td>@l.ActiveDevices / @l.MaxDevices</td>
+                    <td>@l.AssignedUserCount</td>
+                    <td>@l.KeyCount</td>
+                    <td>@Fmt(l.ExpiresAt)</td>
+                    <td>
+                        <div class="row-gap" style="flex-wrap:wrap;">
+                            <button class="btn" @onclick="() => ToggleDetail(l.Id)">@(selectedId == l.Id ? "Schließen" : "Details")</button>
+                            <button class="btn" @onclick="() => StartEdit(l.Id)">Bearbeiten</button>
+                            @if (l.Status == LicenseStatus.Active || l.Status == LicenseStatus.Pending)
+                            {
+                                <button class="btn" @onclick="() => SuspendAsync(l.Id)">Sperren</button>
+                            }
+                            @if (l.Status == LicenseStatus.Suspended)
+                            {
+                                <button class="btn" @onclick="() => ActivateAsync(l.Id)">Aktivieren</button>
+                            }
+                            @if (l.Status != LicenseStatus.Revoked)
+                            {
+                                <button class="btn" @onclick="() => RevokeAsync(l.Id)">Widerrufen</button>
+                            }
+                        </div>
+                    </td>
+                </tr>
+                @if (selectedId == l.Id)
+                {
+                    <tr><td colspan="8">
+                        @if (detail == null) { <div class="empty">Lädt Detail…</div> }
+                        else
+                        {
+                            <div class="card panel">
+                                <div class="form-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));">
+                                    <div><div class="muted">Nachrichten/Tag</div><strong>@(detail.License.MaxMessagesPerDay?.ToString() ?? "∞")</strong></div>
+                                    <div><div class="muted">Nachrichten/Monat</div><strong>@(detail.License.MaxMessagesPerMonth?.ToString() ?? "∞")</strong></div>
+                                    <div><div class="muted">Eingabe/Tag</div><strong>@(detail.License.MaxInputTokensPerDay?.ToString() ?? "∞")</strong></div>
+                                    <div><div class="muted">Ausgabe/Tag</div><strong>@(detail.License.MaxOutputTokensPerDay?.ToString() ?? "∞")</strong></div>
+                                    <div><div class="muted">Gesamt/Monat</div><strong>@(detail.License.MaxTotalTokensPerMonth?.ToString() ?? "∞")</strong></div>
+                                    <div><div class="muted">Max/Anfrage</div><strong>@(detail.License.MaxTokensPerRequest?.ToString() ?? "∞")</strong></div>
+                                </div>
+                                <div class="panel-section">
+                                    <h3>Freigeschaltete Modelle</h3>
+                                    @if (detail.License.Models.Count == 0) { <span class="muted">—</span> }
+                                    @foreach (var m in detail.License.Models) { <span class="tag">@m.DisplayName</span> }
+                                </div>
+                                <div class="panel-section">
+                                    <h3>Lizenzschlüssel (@detail.Keys.Count)</h3>
+                                    <table class="table">
+                                        <thead><tr><th>Präfix</th><th>Status</th><th>Genutzt</th><th>Eingelöst von</th><th>Ablauf</th></tr></thead>
+                                        <tbody>
+                                        @foreach (var k in detail.Keys)
+                                        {
+                                            <tr>
+                                                <td><code>@k.KeyPrefix…</code></td>
+                                                <td><span class="badge @StatusBadge(k.Status)">@k.Status</span></td>
+                                                <td>@k.UsedCount / @k.MaxUses</td>
+                                                <td>@(k.RedeemedByEmail ?? "—")</td>
+                                                <td>@Fmt(k.ExpiresAt)</td>
+                                            </tr>
+                                        }
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="panel-section">
+                                    <h3>Zugewiesene Benutzer</h3>
+                                    <table class="table">
+                                        <thead><tr><th>E-Mail</th><th>Zugewiesen</th><th>Aktion</th></tr></thead>
+                                        <tbody>
+                                        @foreach (var u in detail.Users)
+                                        {
+                                            <tr>
+                                                <td>@(u.Email ?? u.Id)</td>
+                                                <td>@Fmt(u.AssignedAt)</td>
+                                                <td>
+                                                    @if (!u.Revoked) { <button class="btn" @onclick="() => UnassignAsync(l.Id, u.Id)">Entfernen</button> }
+                                                    else { <span class="muted">entfernt</span> }
+                                                </td>
+                                            </tr>
+                                        }
+                                        </tbody>
+                                    </table>
+                                    <div class="row-gap" style="margin-top:12px;">
+                                        <select class="input" @bind="assignUser" style="max-width:280px;">
+                                            <option value="">Benutzer auswählen…</option>
+                                            @foreach (var u in users) { <option value="@u.Id">@u.Email</option> }
+                                        </select>
+                                        <button class="btn btn-primary" disabled="@(string.IsNullOrEmpty(assignUser))" @onclick="() => AssignAsync(l.Id)">Zuweisen</button>
+                                        <button class="btn" @onclick="() => ExtendAsync(l.Id, 30)">+30 Tage</button>
+                                        <button class="btn" @onclick="() => ExtendAsync(l.Id, 365)">+1 Jahr</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </td></tr>
+                }
+            }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private List<AdminLicenseDto> licenses = new();
+    private List<AppDto> apps = new();
+    private List<AiModelDto> models = new();
+    private List<UserDto> users = new();
+    private string search = "";
+    private string statusFilter = "Alle";
+    private bool showCreate;
+    private LicenseForm? editing;
+    private LicenseForm create = new();
+    private Guid? selectedId;
+    private LicenseDetailDto? detail;
+    private string assignUser = "";
+    private string? actionError;
+
+    private sealed class LicenseForm
+    {
+        public Guid AppId { get; set; } = Guid.Empty;
+        public string? Name { get; set; }
+        public string? KeyPrefix { get; set; }
+        public string StartsAtText { get; set; } = "";
+        public string ExpiresAtText { get; set; } = "";
+        public int MaxDevices { get; set; } = 1;
+        public int? MaxMessagesPerDay { get; set; }
+        public int? MaxMessagesPerMonth { get; set; }
+        public long? MaxInputTokensPerDay { get; set; }
+        public long? MaxOutputTokensPerDay { get; set; }
+        public long? MaxTotalTokensPerDay { get; set; }
+        public long? MaxInputTokensPerMonth { get; set; }
+        public long? MaxOutputTokensPerMonth { get; set; }
+        public long? MaxTotalTokensPerMonth { get; set; }
+        public long? MaxTokensPerRequest { get; set; }
+        public List<Guid> ModelIds { get; set; } = new();
+    }
+
+    private static LicenseForm FromDto(AdminLicenseDto d) => new()
+    {
+        AppId = d.AppId,
+        Name = d.Name,
+        StartsAtText = ToLocalText(d.StartsAt),
+        ExpiresAtText = ToLocalText(d.ExpiresAt),
+        MaxDevices = d.MaxDevices,
+        MaxMessagesPerDay = d.MaxMessagesPerDay,
+        MaxMessagesPerMonth = d.MaxMessagesPerMonth,
+        MaxInputTokensPerDay = d.MaxInputTokensPerDay,
+        MaxOutputTokensPerDay = d.MaxOutputTokensPerDay,
+        MaxTotalTokensPerDay = d.MaxTotalTokensPerDay,
+        MaxInputTokensPerMonth = d.MaxInputTokensPerMonth,
+        MaxOutputTokensPerMonth = d.MaxOutputTokensPerMonth,
+        MaxTotalTokensPerMonth = d.MaxTotalTokensPerMonth,
+        MaxTokensPerRequest = d.MaxTokensPerRequest,
+        ModelIds = d.Models.Select(m => m.Id).ToList()
+    };
+
+    private static string ToLocalText(DateTime? value)
+        => value.HasValue ? value.Value.ToLocalTime().ToString("yyyy-MM-ddTHH:mm") : "";
+
+    private static DateTime? FromLocalText(string text)
+        => DateTime.TryParse(text, out var d) ? DateTime.SpecifyKind(d, DateTimeKind.Local).ToUniversalTime() : (DateTime?)null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var licensesResult = await Api.LicensesAsync();
+        if (!licensesResult.Ok) throw new Exception(licensesResult.Error ?? "Lizenzen konnten nicht geladen werden.");
+        licenses = licensesResult.Value ?? new();
+
+        var appsResult = await Api.AppsAsync();
+        apps = appsResult.Ok ? appsResult.Value ?? new() : new();
+
+        var modelsResult = await Api.ModelsAsync();
+        models = modelsResult.Ok ? modelsResult.Value ?? new() : new();
+
+        var usersResult = await Api.UsersAsync();
+        users = usersResult.Ok ? usersResult.Value ?? new() : new();
+
+        if (selectedId.HasValue && detail != null)
+        {
+            var current = detail.License.Id;
+            var reloaded = await Api.LicenseDetailAsync(current);
+            if (reloaded.Ok && reloaded.Value != null) detail = reloaded.Value;
+        }
+    });
+
+    private void ToggleCreate()
+    {
+        showCreate = !showCreate;
+        editing = null;
+        actionError = null;
+        if (showCreate) create = new LicenseForm();
+    }
+
+    private void StartEdit(Guid id)
+    {
+        var l = licenses.FirstOrDefault(x => x.Id == id);
+        if (l == null) return;
+        editing = FromDto(l);
+        showCreate = false;
+        actionError = null;
+    }
+
+    private void CancelForm()
+    {
+        showCreate = false;
+        editing = null;
+        actionError = null;
+    }
+
+    private void ToggleModel(LicenseForm f, Guid modelId, bool selected)
+    {
+        if (selected) { if (!f.ModelIds.Contains(modelId)) f.ModelIds.Add(modelId); }
+        else f.ModelIds.Remove(modelId);
+    }
+
+    private async Task CreateAsync()
+    {
+        actionError = null;
+        if (create.AppId == Guid.Empty) { actionError = "Bitte eine App wählen."; return; }
+        var req = new CreateLicenseRequest
+        {
+            AppId = create.AppId,
+            Name = create.Name,
+            KeyPrefix = create.KeyPrefix,
+            StartsAt = FromLocalText(create.StartsAtText),
+            ExpiresAt = FromLocalText(create.ExpiresAtText),
+            MaxDevices = Math.Max(1, create.MaxDevices),
+            MaxMessagesPerDay = create.MaxMessagesPerDay,
+            MaxMessagesPerMonth = create.MaxMessagesPerMonth,
+            MaxInputTokensPerDay = create.MaxInputTokensPerDay,
+            MaxOutputTokensPerDay = create.MaxOutputTokensPerDay,
+            MaxTotalTokensPerDay = create.MaxTotalTokensPerDay,
+            MaxInputTokensPerMonth = create.MaxInputTokensPerMonth,
+            MaxOutputTokensPerMonth = create.MaxOutputTokensPerMonth,
+            MaxTotalTokensPerMonth = create.MaxTotalTokensPerMonth,
+            MaxTokensPerRequest = create.MaxTokensPerRequest,
+            ModelIds = create.ModelIds
+        };
+        var result = await Api.CreateLicenseAsync(req);
+        if (!result.Ok) { actionError = result.Error; return; }
+        showCreate = false;
+        await LoadAsync();
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (editing == null) return;
+        var result = await Api.UpdateLicenseAsync(editing.AppId, new UpdateLicenseRequest
+        {
+            Name = editing.Name,
+            StartsAt = FromLocalText(editing.StartsAtText),
+            ExpiresAt = FromLocalText(editing.ExpiresAtText),
+            MaxDevices = Math.Max(1, editing.MaxDevices),
+            MaxMessagesPerDay = editing.MaxMessagesPerDay,
+            MaxMessagesPerMonth = editing.MaxMessagesPerMonth,
+            MaxInputTokensPerDay = editing.MaxInputTokensPerDay,
+            MaxOutputTokensPerDay = editing.MaxOutputTokensPerDay,
+            MaxTotalTokensPerDay = editing.MaxTotalTokensPerDay,
+            MaxInputTokensPerMonth = editing.MaxInputTokensPerMonth,
+            MaxOutputTokensPerMonth = editing.MaxOutputTokensPerMonth,
+            MaxTotalTokensPerMonth = editing.MaxTotalTokensPerMonth,
+            MaxTokensPerRequest = editing.MaxTokensPerRequest,
+            ModelIds = editing.ModelIds
+        });
+        if (!result.Ok) { actionError = result.Error; return; }
+        editing = null;
+        await ReloadAndRefreshDetailAsync();
+    }
+
+    private async Task ReloadAndRefreshDetailAsync()
+    {
+        await LoadAsync();
+        if (selectedId.HasValue) await OpenDetailAsync(selectedId.Value);
+    }
+
+    private async Task ToggleDetail(Guid id)
+    {
+        if (selectedId == id) { selectedId = null; detail = null; return; }
+        await OpenDetailAsync(id);
+    }
+
+    private async Task OpenDetailAsync(Guid id)
+    {
+        selectedId = id;
+        detail = null;
+        var result = await Api.LicenseDetailAsync(id);
+        if (result.Ok && result.Value != null)
+        {
+            detail = result.Value;
+            if (detail.License.Models.Count > 0)
+                create.ModelIds = detail.License.Models.Select(m => m.Id).ToList();
+        }
+        else
+        {
+            actionError = result.Error;
+        }
+    }
+
+    private async Task SuspendAsync(Guid id)
+    {
+        var res = await Api.SuspendLicenseAsync(id);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await ReloadAndRefreshDetailAsync();
+    }
+
+    private async Task ActivateAsync(Guid id)
+    {
+        var res = await Api.ActivateLicenseAsync(id);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await ReloadAndRefreshDetailAsync();
+    }
+
+    private async Task RevokeAsync(Guid id)
+    {
+        var res = await Api.RevokeLicenseAsync(id);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await ReloadAndRefreshDetailAsync();
+    }
+
+    private async Task ExtendAsync(Guid id, int days)
+    {
+        var res = await Api.ExtendLicenseAsync(id, days);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await ReloadAndRefreshDetailAsync();
+    }
+
+    private async Task AssignAsync(Guid licenseId)
+    {
+        if (string.IsNullOrEmpty(assignUser)) return;
+        var res = await Api.AssignUserToLicenseAsync(licenseId, assignUser);
+        if (!res.Ok) { actionError = res.Error; return; }
+        assignUser = "";
+        await ReloadAndRefreshDetailAsync();
+    }
+
+    private async Task UnassignAsync(Guid licenseId, string userId)
+    {
+        var res = await Api.UnassignUserFromLicenseAsync(licenseId, userId);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await ReloadAndRefreshDetailAsync();
+    }
+}

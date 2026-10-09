@@ -1,0 +1,75 @@
+<UserControl x:Class="Nexora.Desktop.Views.LoginView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
+             Background="Transparent">
+    <Grid>
+        <!-- Zentrierte Karte -->
+        <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="470">
+            <Border Style="{StaticResource CardBorder}" Padding="34,30">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Kopf -->
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="NEXORA AI" FontSize="26" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}"/>
+                        <TextBlock Text="Lizenzierter KI-Chat · Desktop-Edition" Style="{StaticResource MutedText}" Margin="0,2,0,22"/>
+                    </StackPanel>
+
+                    <!-- API-Adresse -->
+                    <StackPanel Grid.Row="1" Margin="0,0,0,14">
+                        <TextBlock Text="API-Adresse" Style="{StaticResource MutedText}" Margin="0,0,0,6"/>
+                        <TextBox Text="{Binding ApiUrl, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding InputEnabled}"/>
+                    </StackPanel>
+
+                    <!-- E-Mail -->
+                    <StackPanel Grid.Row="2" Margin="0,0,0,14">
+                        <TextBlock Text="E-Mail" Style="{StaticResource MutedText}" Margin="0,0,0,6"/>
+                        <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding InputEnabled}"/>
+                    </StackPanel>
+
+                    <!-- Passwort -->
+                    <StackPanel Grid.Row="3" Margin="0,0,0,8">
+                        <TextBlock Text="Passwort" Style="{StaticResource MutedText}" Margin="0,0,0,6"/>
+                        <PasswordBox x:Name="PasswordBox" PasswordChanged="PasswordBox_OnPasswordChanged" IsEnabled="{Binding InputEnabled}"/>
+                    </StackPanel>
+
+                    <!-- Registrierung -->
+                    <StackPanel Grid.Row="4" Visibility="{Binding IsRegisterMode, Converter={StaticResource BoolToVis}}" Margin="0,10,0,0">
+                        <TextBlock Text="Vollständiger Name (optional)" Style="{StaticResource MutedText}" Margin="0,0,0,6"/>
+                        <TextBox Text="{Binding FullName, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding InputEnabled}"/>
+                        <TextBlock Text="Registrierung vergibt niemals Adminrechte. Eine Lizenz lässt sich anschließend über einen Schlüssel einlösen."
+                                   Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                    </StackPanel>
+
+                    <!-- Fehler -->
+                    <TextBlock Grid.Row="5" Text="{Binding ErrorMessage}" Foreground="{StaticResource ErrorBrush}"
+                               TextWrapping="Wrap" Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVis}}" Margin="0,12,0,0"/>
+
+                    <!-- Aktionen -->
+                    <StackPanel Grid.Row="6" Margin="0,20,0,0">
+                        <Button Style="{StaticResource PrimaryButton}" Content="{Binding SubmitButtonText}"
+                                Command="{Binding SubmitCommand}" IsEnabled="{Binding InputEnabled}"/>
+                        <Button Command="{Binding ToggleModeCommand}" Background="Transparent" BorderThickness="0"
+                                HorizontalAlignment="Center" Margin="0,10,0,0" Cursor="Hand">
+                            <TextBlock Text="{Binding ToggleModeText}" Style="{StaticResource MutedText}" TextDecorations="Underline"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <ProgressBar IsIndeterminate="True" Height="3" VerticalAlignment="Top"
+                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" Margin="0,6,0,0"/>
+    </Grid>
+</UserControl>

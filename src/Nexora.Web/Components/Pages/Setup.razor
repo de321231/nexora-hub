@@ -1,0 +1,103 @@
+@page "/setup"
+@inject TokenStore Tokens
+@inject NavigationManager Nav
+@inject NexoraApiClient Api
+
+<PageTitle>Ersteinrichtung · Nexora Hub</PageTitle>
+
+<div class="auth-wrap">
+    <div class="auth-card card">
+        @if (checking)
+        {
+            <p class="muted">Prüfe Einrichtungsstatus…</p>
+        }
+        else if (done)
+        {
+            <h1>Bereits eingerichtet</h1>
+            <p class="muted">Das Admin-Konto ist bereits vorhanden. Der Bootstrap-Endpunkt ist dauerhaft gesperrt.</p>
+            <a class="btn btn-primary" href="/login">Zur Anmeldung</a>
+        }
+        else
+        {
+            <h1>Ersteinrichtung</h1>
+            <p class="muted">Lege genau einmal das Administrator-Konto an. Nur lokal bzw. mit Bootstrap-Geheimnis möglich; Registrierung vergibt nie Adminrechte.</p>
+
+            <form class="form" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+                <label class="field">
+                    <span>Vollständiger Name</span>
+                    <input class="input" @bind="model.FullName" />
+                </label>
+                <label class="field">
+                    <span>E-Mail</span>
+                    <input class="input" type="email" @bind="model.Email" required />
+                </label>
+                <label class="field">
+                    <span>Passwort (min. 8 Zeichen)</span>
+                    <input class="input" type="password" @bind="model.Password" required minlength="8" />
+                </label>
+                <label class="field">
+                    <span>Passwort wiederholen</span>
+                    <input class="input" type="password" @bind="model.PasswordRepeat" required />
+                </label>
+
+                @if (message != null)
+                {
+                    <div class="error-box">@message</div>
+                }
+
+                <div class="row-gap">
+                    <button class="btn btn-primary" type="submit" disabled="@submitting">@(submitting ? "Erstelle…" : "Administrator erstellen")</button>
+                </div>
+            </form>
+        }
+    </div>
+</div>
+
+@code {
+    private SetupModel model = new();
+    private string? message;
+    private bool checking = true;
+    private bool done;
+    private bool submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var status = await Api.SetupStatusAsync();
+        checking = false;
+        if (!status.Ok || !status.Value!.GetProperty("needsSetup").GetBoolean())
+            done = true;
+    }
+
+    private async Task SubmitAsync()
+    {
+        message = null;
+        if (model.Password != model.PasswordRepeat)
+        {
+            message = "Die Passwörter stimmen nicht überein.";
+            return;
+        }
+        submitting = true;
+        try
+        {
+            var result = await Api.BootstrapAdminAsync(model.Email.Trim(), model.Password, string.IsNullOrWhiteSpace(model.FullName) ? null : model.FullName.Trim());
+            if (!result.Ok)
+            {
+                message = result.Error ?? "Einrichtung fehlgeschlagen.";
+                return;
+            }
+            done = true;
+        }
+        finally
+        {
+            submitting = false;
+        }
+    }
+
+    public class SetupModel
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string PasswordRepeat { get; set; } = "";
+        public string? FullName { get; set; }
+    }
+}

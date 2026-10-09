@@ -1,0 +1,131 @@
+@page "/admin/usage"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Nutzung · Nexora Hub</PageTitle>
+
+<h1>Nutzung</h1>
+<p class="muted">KI-Anfragen, Tokens und Kosten – standardmäßig der aktuelle Kalendermonat (UTC).</p>
+
+<div class="search-bar">
+    <label class="field" style="max-width:220px;"><span>Von</span><input class="input" type="text" placeholder="JJJJ-MM-TT" @bind="fromText" /></label>
+    <label class="field" style="max-width:220px;"><span>Bis</span><input class="input" type="text" placeholder="JJJJ-MM-TT" @bind="toText" /></label>
+    <button class="btn btn-primary" @onclick="LoadAsync">Auswerten</button>
+</div>
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    <div class="grid-cards" style="margin-top:8px;">
+        <div class="stat-card"><h3>Anfragen</h3><div class="value">@FmtLong(summary!.TotalRequests)</div><div class="stat-sub">@summary.FromUtc.ToString("yyyy-MM-dd") bis @summary.ToUtc.ToString("yyyy-MM-dd")</div></div>
+        <div class="stat-card"><h3>Eingabe-Tokens</h3><div class="value">@FmtLong(summary.TotalInputTokens)</div></div>
+        <div class="stat-card"><h3>Ausgabe-Tokens</h3><div class="value">@FmtLong(summary.TotalOutputTokens)</div></div>
+        <div class="stat-card"><h3>Tokens gesamt</h3><div class="value">@FmtLong(summary.TotalTokens)</div></div>
+        <div class="stat-card"><h3>Kosten</h3><div class="value">@(summary.TotalCostUsd?.ToString("0.0000") + " $" ?? "—")</div></div>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+        <h2 style="font-size:16px;">Nach Modell</h2>
+        <table class="table">
+            <thead><tr><th>Modell</th><th>Anfragen</th><th>Tokens</th><th>Kosten</th></tr></thead>
+            <tbody>
+            @foreach (var m in summary.ByModel)
+            {
+                <tr><td><code>@m.ModelId</code></td><td>@m.Requests</td><td>@FmtLong(m.TotalTokens)</td><td>@(m.CostUsd?.ToString("0.0000") + " $" ?? "—")</td></tr>
+            }
+            @if (summary.ByModel.Count == 0) { <tr><td colspan="4"><span class="muted">Keine Daten.</span></td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+        <h2 style="font-size:16px;">Nach Benutzer</h2>
+        <table class="table">
+            <thead><tr><th>Benutzer</th><th>Anfragen</th><th>Tokens</th></tr></thead>
+            <tbody>
+            @foreach (var u in summary.ByUser)
+            {
+                <tr><td>@(u.Email ?? u.UserId)</td><td>@u.Requests</td><td>@FmtLong(u.TotalTokens)</td></tr>
+            }
+            @if (summary.ByUser.Count == 0) { <tr><td colspan="3"><span class="muted">Keine Daten.</span></td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+        <h2 style="font-size:16px;">Pro Tag</h2>
+        <table class="table">
+            <thead><tr><th>Tag</th><th>Anfragen</th><th>Tokens</th></tr></thead>
+            <tbody>
+            @foreach (var d in summary.ByDay)
+            {
+                <tr><td>@d.DayUtc.ToString("yyyy-MM-dd")</td><td>@d.Requests</td><td>@FmtLong(d.TotalTokens)</td></tr>
+            }
+            @if (summary.ByDay.Count == 0) { <tr><td colspan="3"><span class="muted">Keine Daten.</span></td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+        <h2 style="font-size:16px;">Letzte Ereignisse</h2>
+        <table class="table">
+            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Modell</th><th>Eingabe</th><th>Ausgabe</th><th>Status</th><th>Fehler</th><th>Latenz</th></tr></thead>
+            <tbody>
+            @foreach (var e in events)
+            {
+                <tr>
+                    <td>@Fmt(e.CreatedAtUtc)</td>
+                    <td>@(e.UserEmail ?? "—")</td>
+                    <td><code>@(e.ModelId ?? "—")</code></td>
+                    <td>@e.InputTokens</td>
+                    <td>@e.OutputTokens</td>
+                    <td>
+                        @if (e.Success) { <span class="badge active">ok</span> }
+                        else { <span class="badge revoked">fehler</span> }
+                    </td>
+                    <td>@(e.ErrorCode ?? "—")</td>
+                    <td>@(e.LatencyMs.HasValue ? e.LatencyMs + " ms" : "—")</td>
+                </tr>
+            }
+            @if (events.Count == 0) { <tr><td colspan="8"><span class="muted">Keine Ereignisse.</span></td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private UsageSummaryDto? summary;
+    private List<AdminUsageEventDto> events = new();
+    private string fromText = "";
+    private string toText = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready)
+        {
+            var now = DateTime.UtcNow;
+            fromText = new DateTime(now.Year, now.Month, 1).ToString("yyyy-MM-dd");
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        DateTime? from = TryDate(fromText);
+        DateTime? to = TryDate(toText);
+        if (to.HasValue) to = to.Value.Date.AddDays(1);
+
+        var summaryResult = await Api.UsageSummaryAsync(from, to);
+        if (!summaryResult.Ok) throw new Exception(summaryResult.Error ?? "Nutzung konnte nicht geladen werden.");
+        summary = summaryResult.Value;
+
+        var eventsResult = await Api.UsageEventsAsync(500);
+        events = eventsResult.Ok ? eventsResult.Value ?? new() : new();
+    });
+
+    private static DateTime? TryDate(string text)
+        => DateTime.TryParse(text, out var d) ? DateTime.SpecifyKind(d.Date, DateTimeKind.Utc) : null;
+}

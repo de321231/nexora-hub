@@ -1,0 +1,75 @@
+@page "/admin/devices"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Geräte · Nexora Hub</PageTitle>
+
+<h1>Geräte</h1>
+<p class="muted">Aktivierte Geräte, Benutzer und Lizenzen. Widerrufene Geräte verlieren sofort den Zugriff.</p>
+
+<div class="search-bar">
+    <input class="input" type="text" @bind="search" @bind:event="oninput" placeholder="Suche Gerät, ID oder E-Mail…" style="max-width:360px;" />
+    <button class="btn" @onclick="LoadAsync">Aktualisieren</button>
+</div>
+
+@if (actionError != null) { <div class="error-box">@actionError</div> }
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else if (devices.Count == 0)
+{
+    <div class="empty">Keine Geräte registriert.</div>
+}
+else
+{
+    <table class="table">
+        <thead><tr><th>Gerät</th><th>Plattform</th><th>Benutzer</th><th>App / Lizenz</th><th>Status</th><th>Zuerst gesehen</th><th>Zuletzt</th><th>Aktionen</th></tr></thead>
+        <tbody>
+        @foreach (var d in devices)
+        {
+            <tr>
+                <td><strong>@d.DeviceName</strong><br/><code style="font-size:11px;">@d.DeviceIdentifier</code></td>
+                <td>@d.Platform</td>
+                <td>@(d.UserEmail ?? "—")</td>
+                <td>@(d.AppName ?? "—")<br/><span class="muted" style="font-size:12px;">@(d.LicenseName ?? "")</span></td>
+                <td>
+                    @if (d.DeviceActive) { <span class="badge active">aktiv</span> }
+                    else { <span class="badge revoked">widerrufen</span> }
+                </td>
+                <td>@Fmt(d.FirstSeenAt)</td>
+                <td>@Fmt(d.LastSeenAt)</td>
+                <td>
+                    @if (d.DeviceActive) { <button class="btn" @onclick="() => RevokeAsync(d.Id)">Widerrufen</button> }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<AdminDeviceDto> devices = new();
+    private string search = "";
+    private string? actionError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var result = await Api.DevicesAsync(search);
+        if (!result.Ok) throw new Exception(result.Error ?? "Geräte konnten nicht geladen werden.");
+        devices = result.Value ?? new();
+    });
+
+    private async Task RevokeAsync(Guid id)
+    {
+        var res = await Api.RevokeDeviceAsync(id);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await LoadAsync();
+    }
+}

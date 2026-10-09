@@ -1,0 +1,28 @@
+@page "/admin/denied"
+@inject TokenStore Tokens
+@inject NavigationManager Nav
+@inject NexoraApiClient Api
+
+<PageTitle>Kein Zugriff · Nexora Hub</PageTitle>
+
+<div class="auth-wrap">
+    <div class="auth-card card">
+        <h1>Kein Administrator-Zugriff</h1>
+        <p class="muted">
+            Das Nexora Hub Verwaltungspanel ist ausschließlich für Administratoren gedacht.
+            Dieses Konto (@(Tokens.User?.Email ?? "unbekannt")) hat die Rolle Benutzer.
+        </p>
+        <div class="row-gap">
+            <button class="btn" @onclick="LogoutAsync">Abmelden und wechseln</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private async Task LogoutAsync()
+    {
+        await Api.LogoutAsync();
+        Tokens.Clear();
+        Nav.NavigateTo("/login");
+    }
+}

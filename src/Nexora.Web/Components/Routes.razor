@@ -1,0 +1,18 @@
+﻿<Router AppAssembly="@typeof(Program).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Nicht gefunden · Nexora Hub</PageTitle>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="auth-wrap">
+                <div class="auth-card card">
+                    <h1>404 · Nicht gefunden</h1>
+                    <p class="muted">Die angeforderte Seite existiert nicht.</p>
+                    <a class="btn btn-primary" href="/admin">Zum Dashboard</a>
+                </div>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

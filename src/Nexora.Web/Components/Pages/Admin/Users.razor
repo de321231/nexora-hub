@@ -1,0 +1,233 @@
+@page "/admin/users"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Benutzer · Nexora Hub</PageTitle>
+
+<h1>Benutzer</h1>
+<p class="muted">Konten, Rollen, Lizenzen (Weg 2: direkte Zuweisung) und Geräte.</p>
+
+<div class="search-bar">
+    <input class="input" type="text" @bind="search" @bind:event="oninput" placeholder="Suche E-Mail oder Name…" style="max-width:360px;" />
+    <button class="btn" @onclick="LoadAsync">Aktualisieren</button>
+</div>
+
+@if (actionError != null) { <div class="error-box">@actionError</div> }
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    var list = users;
+    if (!string.IsNullOrWhiteSpace(search))
+        list = list.Where(u => (u.Email ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)
+                            || (u.FullName ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    if (list.Count == 0)
+    {
+        <div class="empty">Keine Benutzer gefunden.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>Benutzer</th><th>Rollen</th><th>Status</th><th>Lizenzen</th><th>Erstellt</th><th>Aktionen</th></tr></thead>
+            <tbody>
+            @foreach (var u in list)
+            {
+                <tr>
+                    <td><strong>@u.Email</strong><br/><span class="muted" style="font-size:12px;">@(u.FullName ?? "")</span></td>
+                    <td>
+                        @foreach (var r in u.Roles) { <span class="tag @(r == "Admin" ? "tag-accent" : "")">@r</span> }
+                    </td>
+                    <td>
+                        @if (u.IsLocked) { <span class="badge revoked">gesperrt</span> }
+                        else if (!u.IsActive) { <span class="badge expired">deaktiviert</span> }
+                        else { <span class="badge active">aktiv</span> }
+                    </td>
+                    <td>@u.ActiveLicenses</td>
+                    <td>@u.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                    <td>
+                        <button class="btn" @onclick="() => ToggleDetail(u.Id)">@(selectedId == u.Id ? "Schließen" : "Details")</button>
+                    </td>
+                </tr>
+                @if (selectedId == u.Id)
+                {
+                    <tr><td colspan="6">
+                        @if (detail == null) { <div class="empty">Lädt Detail…</div> }
+                        else
+                        {
+                            <div class="card panel">
+                                <div class="row-gap" style="flex-wrap:wrap;">
+                                    <label class="check"><input type="checkbox" @bind="detail.User.IsActive" @bind:after="() => _ = SaveUserAsync(u.Id)" /> Konto aktiv</label>
+                                    <label class="check"><input type="checkbox" @bind="detail.User.IsLocked" @bind:after="() => _ = SaveUserAsync(u.Id)" /> Gesperrt</label>
+                                    <label class="check"><input type="checkbox" checked="@IsAdmin(detail.User)" @onchange="e => ToggleAdminAsync(u.Id, (bool)e.Value!)" /> Admin-Rolle</label>
+                                </div>
+
+                                <div class="panel-section">
+                                    <h3>Zugewiesene Lizenzen</h3>
+                                    @if (detail.Licenses.Count == 0) { <p class="muted">Keine Lizenzen zugewiesen.</p> }
+                                    else
+                                    {
+                                        <table class="table">
+                                            <thead><tr><th>Lizenz</th><th>App</th><th>Status</th><th>Ablauf</th><th>Aktion</th></tr></thead>
+                                            <tbody>
+                                            @foreach (var ul in detail.Licenses)
+                                            {
+                                                <tr>
+                                                    <td>@(ul.Name ?? ul.LicenseId.ToString()[..8])</td>
+                                                    <td>@(ul.AppName ?? "—")</td>
+                                                    <td><span class="badge @(ul.Revoked ? "expired" : StatusBadge(ul.Status))">@(ul.Revoked ? "entfernt" : ul.Status.ToString())</span></td>
+                                                    <td>@Fmt(ul.ExpiresAt)</td>
+                                                    <td>
+                                                        @if (!ul.Revoked) { <button class="btn" @onclick="() => RemoveLicenseAsync(u.Id, ul.LicenseId)">Entfernen</button> }
+                                                    </td>
+                                                </tr>
+                                            }
+                                            </tbody>
+                                        </table>
+                                    }
+                                    <div class="row-gap" style="margin-top:12px;">
+                                        <select class="input" @bind="assignLicense" style="max-width:320px;">
+                                            <option value="@(Guid.Empty)">Lizenz zuweisen…</option>
+                                            @foreach (var l in licenses) { <option value="@l.Id">@(l.Name ?? l.AppName)</option> }
+                                        </select>
+                                        <button class="btn btn-primary" disabled="@(assignLicense == Guid.Empty)" @onclick="() => AssignLicenseAsync(u.Id)">Zuweisen</button>
+                                    </div>
+                                </div>
+
+                                <div class="panel-section">
+                                    <h3>Geräte des Benutzers</h3>
+                                    @if (devices.Count == 0 && !devicesLoading) { <p class="muted">Keine Geräte registriert.</p> }
+                                    @if (devicesLoading) { <p class="muted">Lädt Geräte…</p> }
+                                    else
+                                    {
+                                        <table class="table">
+                                            <thead><tr><th>Gerät</th><th>Plattform</th><th>Gesehen</th><th>Aktion</th></tr></thead>
+                                            <tbody>
+                                            @foreach (var d in devices)
+                                            {
+                                                <tr>
+                                                    <td>@d.DeviceName</td>
+                                                    <td>@d.Platform</td>
+                                                    <td>@Fmt(d.LastSeenAt)</td>
+                                                    <td>
+                                                        @if (!d.Revoked) { <button class="btn" @onclick="() => RevokeDeviceAsync(u.Id, d.Id)">Widerrufen</button> }
+                                                        else { <span class="muted">gesperrt</span> }
+                                                    </td>
+                                                </tr>
+                                            }
+                                            </tbody>
+                                        </table>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </td></tr>
+                }
+            }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private List<UserDto> users = new();
+    private List<AdminLicenseDto> licenses = new();
+    private List<DeviceDto> devices = new();
+    private string search = "";
+    private string? selectedId;
+    private UserDetailDto? detail;
+    private bool devicesLoading;
+    private Guid assignLicense = Guid.Empty;
+    private string? actionError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var usersResult = await Api.UsersAsync();
+        if (!usersResult.Ok) throw new Exception(usersResult.Error ?? "Benutzer konnten nicht geladen werden.");
+        users = usersResult.Value ?? new();
+
+        var licensesResult = await Api.LicensesAsync();
+        licenses = licensesResult.Ok ? licensesResult.Value ?? new() : new();
+    });
+
+    private static bool IsAdmin(UserDto u) => u.Roles.Contains("Admin", StringComparer.OrdinalIgnoreCase);
+
+    private async Task ToggleDetail(string id)
+    {
+        if (selectedId == id) { selectedId = null; detail = null; return; }
+        selectedId = id;
+        detail = null;
+        devices.Clear();
+        var result = await Api.UserDetailAsync(id);
+        if (!result.Ok || result.Value == null) { actionError = result.Error ?? "Detail konnte nicht geladen werden."; return; }
+        detail = result.Value;
+        await LoadDevicesAsync(id);
+    }
+
+    private async Task LoadDevicesAsync(string userId)
+    {
+        devicesLoading = true;
+        var res = await Api.UserDevicesAsync(userId);
+        devices = res.Ok ? res.Value ?? new() : new();
+        devicesLoading = false;
+    }
+
+    private async Task SaveUserAsync(string userId)
+    {
+        if (detail == null) return;
+        var res = await Api.UpdateUserAsync(userId, new UpdateUserRequest
+        {
+            FullName = detail.User.FullName,
+            IsActive = detail.User.IsActive,
+            IsLocked = detail.User.IsLocked,
+            Roles = detail.User.Roles
+        });
+        if (!res.Ok) { actionError = res.Error; return; }
+        // Benutzerliste synchronisieren
+        var listRes = await Api.UsersAsync();
+        if (listRes.Ok) users = listRes.Value ?? new();
+    }
+
+    private async Task ToggleAdminAsync(string userId, bool makeAdmin)
+    {
+        if (detail == null) return;
+        var roles = detail.User.Roles.Where(r => r != "Admin" && r != "User").ToList();
+        roles.Add("User");
+        if (makeAdmin) roles.Add("Admin");
+        var res = await Api.SetUserRolesAsync(userId, roles);
+        if (!res.Ok) { actionError = res.Error; return; }
+        var detailRes = await Api.UserDetailAsync(userId);
+        if (detailRes.Ok && detailRes.Value != null) detail = detailRes.Value;
+    }
+
+    private async Task AssignLicenseAsync(string userId)
+    {
+        if (assignLicense == Guid.Empty) return;
+        var res = await Api.AssignLicenseAsync(userId, assignLicense);
+        if (!res.Ok) { actionError = res.Error; return; }
+        assignLicense = Guid.Empty;
+        await ToggleDetail(userId);
+    }
+
+    private async Task RemoveLicenseAsync(string userId, Guid licenseId)
+    {
+        var res = await Api.RemoveLicenseAsync(userId, licenseId);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await ToggleDetail(userId);
+    }
+
+    private async Task RevokeDeviceAsync(string userId, Guid deviceId)
+    {
+        var res = await Api.RevokeUserDeviceAsync(userId, deviceId);
+        if (!res.Ok) { actionError = res.Error; return; }
+        await LoadDevicesAsync(userId);
+    }
+}

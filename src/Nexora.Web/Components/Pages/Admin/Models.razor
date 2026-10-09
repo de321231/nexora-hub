@@ -1,0 +1,197 @@
+@page "/admin/models"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>KI-Modelle · Nexora Hub</PageTitle>
+
+<h1>KI-Modelle</h1>
+<p class="muted">Globaler Modellkatalog. Die Freischaltung für Lizenzen erfolgt je Lizenz.</p>
+
+<div class="search-bar">
+    <input class="input" type="text" @bind="search" @bind:event="oninput" placeholder="Suche Modell…" style="max-width:360px;" />
+    <button class="btn btn-primary" @onclick="SyncAsync">Von LiteLLM synchronisieren</button>
+    <button class="btn" @onclick="ToggleCreate">@(showCreate ? "Abbrechen" : "Neues Modell")</button>
+</div>
+
+@if (syncMessage != null)
+{
+    <p class="info-box">@syncMessage</p>
+}
+
+@if (showCreate)
+{
+    <div class="card panel">
+        <h2 style="font-size:16px;">Neues Modell</h2>
+        <div class="form-grid">
+            <label class="field"><span>Modell-ID *</span><input class="input" @bind="create.ModelId" placeholder="openai/gpt-4o-mini" /></label>
+            <label class="field"><span>Anzeigename</span><input class="input" @bind="create.DisplayName" /></label>
+            <label class="field"><span>Provider</span><input class="input" @bind="create.Provider" placeholder="openai" /></label>
+            <label class="field"><span>Max. Kontext (Tokens)</span><input class="input" type="number" @bind="create.MaxContextTokens" /></label>
+            <label class="field"><span>Eingabe-Kosten / 1M</span><input class="input" type="number" step="0.0001" @bind="create.InputCostPer1M" /></label>
+            <label class="field"><span>Ausgabe-Kosten / 1M</span><input class="input" type="number" step="0.0001" @bind="create.OutputCostPer1M" /></label>
+        </div>
+        <label class="check"><input type="checkbox" @bind="create.IsActive" /> Aktiv</label>
+        @if (actionError != null) { <div class="error-box">@actionError</div> }
+        <div class="row-gap">
+            <button class="btn btn-primary" @onclick="CreateAsync">Anlegen</button>
+            <button class="btn" @onclick="ToggleCreate">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    var list = models;
+    if (!string.IsNullOrWhiteSpace(search))
+        list = list.Where(m => (m.ModelId ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)
+                            || (m.DisplayName ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)
+                            || (m.Provider ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    if (list.Count == 0)
+    {
+        <div class="empty">Keine Modelle gefunden.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>Modell</th><th>Anzeigename</th><th>Provider</th><th>Kontext</th><th>Kosten / 1M</th><th>Status</th><th>Aktionen</th></tr></thead>
+            <tbody>
+            @foreach (var m in list)
+            {
+                <tr>
+                    <td><code>@m.ModelId</code></td>
+                    <td>@m.DisplayName</td>
+                    <td>@(string.IsNullOrWhiteSpace(m.Provider) ? "—" : m.Provider)</td>
+                    <td>@(m.MaxContextTokens?.ToString("N0") ?? "—")</td>
+                    <td>@(m.InputCostPer1M.HasValue ? m.InputCostPer1M.Value.ToString("0.0000") : "—") / @(m.OutputCostPer1M.HasValue ? m.OutputCostPer1M.Value.ToString("0.0000") : "—")</td>
+                    <td><span class="badge @(m.IsActive ? "active" : "expired")">@(m.IsActive ? "aktiv" : "deaktiviert")</span></td>
+                    <td>
+                        <div class="row-gap">
+                            <button class="btn" @onclick="() => Edit(m.Id)">Bearbeiten</button>
+                            @if (m.IsActive) { <button class="btn" @onclick="() => DeactivateAsync(m.Id)">Deaktivieren</button> }
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+}
+
+@if (editing != null)
+{
+    <div class="card panel">
+        <h2 style="font-size:16px;">Modell bearbeiten</h2>
+        <div class="form-grid">
+            <label class="field"><span>Modell-ID *</span><input class="input" @bind="editing.ModelId" /></label>
+            <label class="field"><span>Anzeigename</span><input class="input" @bind="editing.DisplayName" /></label>
+            <label class="field"><span>Provider</span><input class="input" @bind="editing.Provider" /></label>
+            <label class="field"><span>Max. Kontext</span><input class="input" type="number" @bind="editing.MaxContextTokens" /></label>
+            <label class="field"><span>Eingabe-Kosten / 1M</span><input class="input" type="number" step="0.0001" @bind="editing.InputCostPer1M" /></label>
+            <label class="field"><span>Ausgabe-Kosten / 1M</span><input class="input" type="number" step="0.0001" @bind="editing.OutputCostPer1M" /></label>
+        </div>
+        <label class="check"><input type="checkbox" @bind="editing.IsActive" /> Aktiv</label>
+        <div class="row-gap">
+            <button class="btn btn-primary" @onclick="SaveAsync">Speichern</button>
+            <button class="btn" @onclick="CancelEdit">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AiModelDto> models = new();
+    private string search = "";
+    private bool showCreate;
+    private AiModelDto? editing;
+    private string? actionError;
+    private string? syncMessage;
+
+    private CreateModelRequest create = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var result = await Api.ModelsAsync();
+        if (!result.Ok) throw new Exception(result.Error ?? "Modelle konnten nicht geladen werden.");
+        models = result.Value ?? new();
+    });
+
+    private void ToggleCreate()
+    {
+        showCreate = !showCreate;
+        actionError = null;
+        if (showCreate) create = new CreateModelRequest { IsActive = true };
+    }
+
+    private async Task CreateAsync()
+    {
+        actionError = null;
+        if (string.IsNullOrWhiteSpace(create.ModelId)) { actionError = "Modell-ID ist erforderlich."; return; }
+        var result = await Api.CreateModelAsync(create);
+        if (!result.Ok) { actionError = result.Error; return; }
+        showCreate = false;
+        await LoadAsync();
+    }
+
+    private void Edit(Guid id)
+    {
+        var model = models.FirstOrDefault(m => m.Id == id);
+        if (model == null) return;
+        editing = new AiModelDto
+        {
+            Id = model.Id, ModelId = model.ModelId, DisplayName = model.DisplayName, Provider = model.Provider,
+            IsActive = model.IsActive, MaxContextTokens = model.MaxContextTokens,
+            InputCostPer1M = model.InputCostPer1M, OutputCostPer1M = model.OutputCostPer1M
+        };
+    }
+
+    private void CancelEdit() => editing = null;
+
+    private async Task SaveAsync()
+    {
+        if (editing == null) return;
+        var result = await Api.UpdateModelAsync(editing.Id, new UpdateModelRequest
+        {
+            ModelId = editing.ModelId,
+            DisplayName = editing.DisplayName,
+            Provider = editing.Provider,
+            IsActive = editing.IsActive,
+            MaxContextTokens = editing.MaxContextTokens,
+            InputCostPer1M = editing.InputCostPer1M,
+            OutputCostPer1M = editing.OutputCostPer1M
+        });
+        if (!result.Ok) { actionError = result.Error; return; }
+        editing = null;
+        await LoadAsync();
+    }
+
+    private async Task DeactivateAsync(Guid id)
+    {
+        var result = await Api.DeleteModelAsync(id);
+        if (!result.Ok) { actionError = result.Error; return; }
+        await LoadAsync();
+    }
+
+    private async Task SyncAsync()
+    {
+        syncMessage = null;
+        var result = await Api.SyncModelsAsync();
+        if (!result.Ok)
+        {
+            syncMessage = result.Error ?? "Synchronisierung fehlgeschlagen.";
+            return;
+        }
+        var added = result.Value!.GetProperty("added").GetInt32();
+        var updated = result.Value.GetProperty("updated").GetInt32();
+        syncMessage = $"Sync abgeschlossen: {added} neue, {updated} aktualisierte Modelle.";
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,48 @@
+# ============================================================================
+# OPTIONAL: Lokale PostgreSQL-Instanz NUR für Tests/Entwicklung.
+#
+# NICHT für den Produktivbetrieb gedacht! Im Produktivbetrieb nutzt Nexora
+# die vorhandene externe PostgreSQL-Instanz (siehe docker-compose.yml).
+#
+# Verwendung (Start mit lokaler Test-DB):
+#   docker compose -f docker-compose.yml -f docker-compose.local-db.yml up -d
+#
+# Dazu muss in der .env gelten:
+#   NEXORA_DB_HOST=postgres
+#   NEXORA_DB_PORT=5432
+#   NEXORA_DB_NAME=<name>
+#   NEXORA_DB_USER=<user>
+#   NEXORA_DB_PASSWORD=<passwort>
+#
+# Die Test-DB wird NICHT auf einen Host-Port veröffentlicht (nur intern).
+# ============================================================================
+
+name: nexora
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${NEXORA_DB_USER:?NEXORA_DB_USER in .env setzen}
+      POSTGRES_PASSWORD: ${NEXORA_DB_PASSWORD:?NEXORA_DB_PASSWORD in .env setzen}
+      POSTGRES_DB: ${NEXORA_DB_NAME:?NEXORA_DB_NAME in .env setzen}
+    volumes:
+      - nexora_pgdata:/var/lib/postgresql/data
+    networks:
+      - nexora
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NEXORA_DB_USER} -d ${NEXORA_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  nexora_pgdata:
+
+networks:
+  nexora:
+    driver: bridge

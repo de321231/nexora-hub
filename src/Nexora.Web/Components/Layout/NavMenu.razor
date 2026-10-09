@@ -1,0 +1,17 @@
+﻿@inject TokenStore Tokens
+
+<nav class="nav">
+    <NavLink class="nav-link" href="/admin" Match="NavLinkMatch.All">Dashboard</NavLink>
+    @if (Tokens.IsAdmin)
+    {
+        <NavLink class="nav-link" href="/admin/apps">Apps</NavLink>
+        <NavLink class="nav-link" href="/admin/models">KI-Modelle</NavLink>
+        <NavLink class="nav-link" href="/admin/licenses">Lizenzen</NavLink>
+        <NavLink class="nav-link" href="/admin/license-keys">Lizenzschlüssel</NavLink>
+        <NavLink class="nav-link" href="/admin/users">Benutzer</NavLink>
+        <NavLink class="nav-link" href="/admin/devices">Geräte</NavLink>
+        <NavLink class="nav-link" href="/admin/usage">Nutzung</NavLink>
+    }
+    <div class="nav-spacer"></div>
+    <div class="nav-footer">Nexora Hub v1.0</div>
+</nav>

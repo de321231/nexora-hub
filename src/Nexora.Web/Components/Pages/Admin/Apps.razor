@@ -1,0 +1,192 @@
+@page "/admin/apps"
+@inherits AdminPageBase
+@inject NexoraApiClient Api
+
+<PageTitle>Apps · Nexora Hub</PageTitle>
+
+<h1>Apps / Produkte</h1>
+<p class="muted">Lizenzierbare Anwendungen (Web oder Windows) verwalten.</p>
+
+<div class="search-bar">
+    <input class="input" type="text" @bind="search" @bind:event="oninput" placeholder="Suche App…" style="max-width:360px;" />
+    <button class="btn btn-primary" @onclick="ToggleCreate">@(showCreate ? "Abbrechen" : "Neue App")</button>
+</div>
+
+@if (showCreate)
+{
+    <div class="card panel">
+        <h2 style="font-size:16px;">Neue App</h2>
+        <div class="form-grid">
+            <label class="field"><span>Name *</span><input class="input" @bind="create.Name" /></label>
+            <label class="field"><span>Slug (optional)</span><input class="input" @bind="create.Slug" /></label>
+            <label class="field"><span>Typ</span>
+                <select class="input" @bind="create.Kind">
+                    @foreach (var kind in Enum.GetValues<AppType>()) { <option value="@kind">@kind</option> }
+                </select>
+            </label>
+            <label class="field"><span>Status</span>
+                <select class="input" @bind="create.Status">
+                    @foreach (var s in Enum.GetValues<AppStatus>()) { <option value="@s">@s</option> }
+                </select>
+            </label>
+        </div>
+        <label class="field"><span>Beschreibung</span><textarea class="input" @bind="create.Description" rows="2"></textarea></label>
+        <label class="check"><input type="checkbox" @bind="create.LicenseRequired" /> Lizenz erforderlich</label>
+        @if (actionError != null) { <div class="error-box">@actionError</div> }
+        <div class="row-gap">
+            <button class="btn btn-primary" @onclick="CreateAsync">Anlegen</button>
+            <button class="btn" @onclick="ToggleCreate">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@if (!Ready) { }
+else if (Loading) { <div class="empty">Lädt Daten…</div> }
+else if (Error != null) { <div class="error-box">@Error <button class="btn" @onclick="LoadAsync">Wiederholen</button></div> }
+else
+{
+    var list = apps;
+    if (!string.IsNullOrWhiteSpace(search))
+        list = list.Where(a => (a.Name ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)
+                            || (a.Slug ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    if (list.Count == 0)
+    {
+        <div class="empty">Keine Apps gefunden.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>Name</th><th>Typ</th><th>Status</th><th>Lizenz</th><th>Aktionen</th></tr></thead>
+            <tbody>
+            @foreach (var a in list)
+            {
+                <tr>
+                    <td><strong>@a.Name</strong><br/><span class="muted" style="font-size:12px;">@a.Slug</span></td>
+                    <td>@a.Kind</td>
+                    <td><span class="badge @StatusBadge(a.Status)">@a.Status</span></td>
+                    <td>@(a.LicenseRequired ? "erforderlich" : "optional")</td>
+                    <td>
+                        <div class="row-gap" style="flex-wrap:wrap;">
+                            <button class="btn" @onclick="() => Edit(a.Id)">Bearbeiten</button>
+                            @if (a.Status != AppStatus.Published) { <button class="btn" @onclick="() => PublishAsync(a.Id)">Veröffentlichen</button> }
+                            @if (a.Status != AppStatus.Archived) { <button class="btn" @onclick="() => ArchiveAsync(a.Id)">Archivieren</button> }
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+}
+
+@if (editing != null)
+{
+    <div class="card panel">
+        <h2 style="font-size:16px;">App bearbeiten: @editing.Name</h2>
+        <div class="form-grid">
+            <label class="field"><span>Name</span><input class="input" @bind="editing.Name" /></label>
+            <label class="field"><span>Beschreibung</span><textarea class="input" @bind="editing.Description" rows="2"></textarea></label>
+            <label class="field"><span>Typ</span>
+                <select class="input" @bind="editing.Kind">
+                    @foreach (var kind in Enum.GetValues<AppType>()) { <option value="@kind">@kind</option> }
+                </select>
+            </label>
+            <label class="field"><span>Status</span>
+                <select class="input" @bind="editing.Status">
+                    @foreach (var s in Enum.GetValues<AppStatus>()) { <option value="@s">@s</option> }
+                </select>
+            </label>
+        </div>
+        <label class="check"><input type="checkbox" @bind="editing.LicenseRequired" /> Lizenz erforderlich</label>
+        <div class="row-gap">
+            <button class="btn btn-primary" @onclick="SaveAsync">Speichern</button>
+            <button class="btn" @onclick="CancelEdit">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AppDto> apps = new();
+    private string search = "";
+    private bool showCreate;
+    private AppDto? editing;
+    private string? actionError;
+
+    private CreateAppRequest create = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        if (Ready) await LoadAsync();
+    }
+
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        var result = await Api.AppsAsync();
+        if (!result.Ok) throw new Exception(result.Error ?? "Apps konnten nicht geladen werden.");
+        apps = result.Value ?? new();
+    });
+
+    private void ToggleCreate()
+    {
+        showCreate = !showCreate;
+        actionError = null;
+        if (showCreate) create = new CreateAppRequest { Status = AppStatus.Draft, Kind = AppType.WindowsProgram, LicenseRequired = true };
+    }
+
+    private async Task CreateAsync()
+    {
+        actionError = null;
+        if (string.IsNullOrWhiteSpace(create.Name)) { actionError = "Name ist erforderlich."; return; }
+        var result = await Api.CreateAppAsync(create);
+        if (!result.Ok) { actionError = result.Error; return; }
+        showCreate = false;
+        await LoadAsync();
+    }
+
+    private void Edit(Guid id)
+    {
+        var app = apps.FirstOrDefault(a => a.Id == id);
+        if (app == null) return;
+        editing = new AppDto
+        {
+            Id = app.Id, Name = app.Name, Slug = app.Slug, Description = app.Description,
+            Kind = app.Kind, Status = app.Status, LicenseRequired = app.LicenseRequired, IsActive = app.IsActive,
+            CreatedAt = app.CreatedAt
+        };
+    }
+
+    private void CancelEdit() => editing = null;
+
+    private async Task SaveAsync()
+    {
+        if (editing == null) return;
+        var result = await Api.UpdateAppAsync(editing.Id, new UpdateAppRequest
+        {
+            Name = editing.Name,
+            Description = editing.Description,
+            Kind = editing.Kind,
+            Status = editing.Status,
+            LicenseRequired = editing.LicenseRequired,
+            IsActive = editing.IsActive
+        });
+        if (!result.Ok) { actionError = result.Error; return; }
+        editing = null;
+        await LoadAsync();
+    }
+
+    private async Task PublishAsync(Guid id)
+    {
+        var result = await Api.PublishAppAsync(id);
+        if (!result.Ok) { actionError = result.Error; return; }
+        await LoadAsync();
+    }
+
+    private async Task ArchiveAsync(Guid id)
+    {
+        var result = await Api.ArchiveAppAsync(id);
+        if (!result.Ok) { actionError = result.Error; return; }
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,21 @@
+﻿@page "/"
+@inject TokenStore Tokens
+@inject NavigationManager Nav
+@inject NexoraApiClient Api
+
+<PageTitle>Nexora Hub</PageTitle>
+
+<div class="empty">Weiterleitung…</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        if (Tokens.IsAuthenticated)
+        {
+            Nav.NavigateTo(Tokens.IsAdmin ? "/admin" : "/admin/denied", forceLoad: true);
+            return;
+        }
+        var status = await Api.SetupStatusAsync();
+        Nav.NavigateTo(status.Ok && status.Value!.GetProperty("needsSetup").GetBoolean() ? "/setup" : "/login", forceLoad: true);
+    }
+}

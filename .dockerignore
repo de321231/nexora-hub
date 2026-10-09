@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# .dockerignore – wird auf den Build-Kontext angewandt (Repository-Root)
+# ---------------------------------------------------------------------------
+
+# Versionskontrolle
+.git
+.gitignore
+**/.vs
+**/.vscode
+**/.idea
+
+# Geheimnisse: niemals in den Build-Kontext / ins Image
+.env
+src/.env
+**/appsettings.local.json
+**/*.pubxml
+*.pfx
+*.pem
+
+# Build-Artefakte (verhindern, dass lokale bin/obj ins Image wandern)
+**/bin
+**/obj
+**/publish
+publish/
+
+# Tests werden für die Container nicht benötigt
+tests/
+
+# Alte/sonstige Artefakte
+temp_check/
+check_remote.cs
+deploy/Reverseproxy.md
+
+# Logs
+*.log
+*.tmp

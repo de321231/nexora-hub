@@ -1,0 +1,32 @@
+# ============================================================================
+# .gitignore – Nexora Hub
+# Alles, was NICHT auf GitHub darf, ist hier ausgeschlossen.
+# Achtung: .env und appsettings.local.json enthalten echte Zugangsdaten.
+# ============================================================================
+
+# ---- Geheimnisse & lokale Konfiguration (niemals einchecken!) --------------
+.env
+**/.env
+appsettings.local.json
+**/*.pubxml
+*.pfx
+*.pem
+
+# ---- .NET Build-Artefakte ---------------------------------------------------
+bin/
+obj/
+publish/
+*.user
+*.suo
+*.cache
+*.log
+
+# ---- IDE / Editor -----------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+# ---- Nexora-Entwicklungsreste (nicht Teil der Lösung) ------------------------
+check_remote.cs
+temp_check/
