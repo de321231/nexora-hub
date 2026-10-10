@@ -5,6 +5,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!-- Bindet die ASP.NET-Framework-Assets (wwwroot/_framework/blazor.web.js,
+         blazor.server.js) als Static Web Assets ein. Die Web-SDK-Heuristik
+         (ResolveRequiredWebAssets) greift nur, wenn .razor-Dateien als Content
+         erkannt werden. Ohne diese Angabe fehlen die Assets im Publish und der
+         Browser erhält 404 für /_framework/blazor.web.js. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
   <ItemGroup>
